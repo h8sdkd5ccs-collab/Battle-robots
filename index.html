@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>STEEL BREACH 3D — Savaş Robotu Prototipi</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#0a0a08; font-family: 'Courier New', monospace; }
+  canvas { display:block; touch-action:none; }
+
+  #hud {
+    position:fixed; top:0; left:0; width:100%; height:100%;
+    pointer-events:none; z-index:10;
+  }
+
+  #topbar {
+    position:absolute; top:14px; left:14px; right:14px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    font-size:12px; letter-spacing:1px; color:#d8c9a3;
+  }
+
+  .panel {
+    background:linear-gradient(180deg, rgba(20,18,14,0.85), rgba(10,9,7,0.85));
+    border:1px solid #5a4a30; border-radius:4px; padding:8px 12px;
+    box-shadow: 0 0 12px rgba(0,0,0,0.6) inset;
+  }
+
+  .barLabel { font-size:10px; color:#a89768; margin-bottom:3px; text-transform:uppercase; letter-spacing:2px; }
+  .barOuter { width:160px; height:10px; background:#1a1712; border:1px solid #4a3f2a; border-radius:2px; overflow:hidden; margin-bottom:6px; }
+  .barInner { height:100%; transition:width 0.2s ease; }
+  #hpBar { background:linear-gradient(90deg,#8a2b1c,#c94a2c); }
+  #heatBar { background:linear-gradient(90deg,#7a5a1a,#e0b13a); }
+
+  #scorePanel { text-align:right; }
+  #scoreVal { font-size:22px; color:#e0b13a; font-weight:bold; }
+  #waveVal { font-size:11px; color:#a89768; }
+
+  #crosshair {
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:26px; height:26px; pointer-events:none;
+  }
+  #crosshair::before, #crosshair::after {
+    content:''; position:absolute; background:#c94a2c;
+  }
+  #crosshair::before { width:100%; height:2px; top:50%; left:0; transform:translateY(-50%); }
+  #crosshair::after { width:2px; height:100%; left:50%; top:0; transform:translateX(-50%); }
+
+  #centerMsg {
+    position:absolute; top:40%; left:50%; transform:translate(-50%,-50%);
+    text-align:center; color:#e0b13a; font-size:15px; letter-spacing:3px;
+    text-shadow:0 0 10px rgba(0,0,0,0.8); opacity:0; transition:opacity 0.4s;
+  }
+
+  #gameOver {
+    position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    flex-direction:column; background:rgba(5,4,3,0.88); pointer-events:auto;
+  }
+  #gameOver h1 { color:#c94a2c; font-size:34px; letter-spacing:4px; margin-bottom:10px; }
+  #gameOver.win h1 { color:#3ecf6a; }
+  #gameOver p { color:#d8c9a3; font-size:14px; margin-bottom:20px; letter-spacing:1px; }
+  #gameOver button {
+    pointer-events:auto; background:#3a2f1e; color:#e0b13a; border:1px solid #a89768;
+    padding:12px 26px; font-family:inherit; font-size:14px; letter-spacing:2px; cursor:pointer;
+    border-radius:3px;
+  }
+
+  #missionPanel {
+    position:absolute; top:14px; left:50%; transform:translateX(-50%);
+    text-align:center; min-width:220px;
+  }
+  #missionText { color:#e0b13a; font-size:12px; letter-spacing:0.5px; }
+
+  /* Touch controls */
+  #joyLeft, #joyRight {
+    position:absolute; bottom:26px; width:120px; height:120px; border-radius:50%;
+    background:rgba(60,50,30,0.25); border:2px solid rgba(168,151,104,0.4);
+    pointer-events:auto;
+  }
+  #joyLeft { left:22px; }
+  #joyRight { right:22px; }
+  .joyStick {
+    position:absolute; top:50%; left:50%; width:52px; height:52px; border-radius:50%;
+    background:rgba(224,177,58,0.5); border:1px solid #e0b13a;
+    transform:translate(-50%,-50%); pointer-events:none;
+  }
+
+  #fireBtn {
+    position:absolute; bottom:160px; right:32px; width:74px; height:74px; border-radius:50%;
+    background:rgba(201,74,44,0.35); border:2px solid #c94a2c;
+    pointer-events:auto; display:flex; align-items:center; justify-content:center;
+    color:#e0b13a; font-size:10px; letter-spacing:1px;
+  }
+  #fireBtn.active { background:rgba(201,74,44,0.7); }
+
+  #airstrikeBtn {
+    position:absolute; bottom:246px; right:38px; width:62px; height:62px; border-radius:50%;
+    background:rgba(224,141,58,0.3); border:2px solid #e08d3a;
+    pointer-events:auto; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:#ffd9a0; font-size:8px; letter-spacing:0.5px; text-align:center; line-height:1.2;
+  }
+  #airstrikeBtn .cd { font-size:9px; color:#ffcf6b; margin-top:2px; font-weight:bold; }
+  #airstrikeBtn.cooling { opacity:0.4; border-color:#7a5a2a; }
+  #airstrikeBtn.cooling .cd { color:#a89768; }
+  #airstrikeBtn:active:not(.cooling) { background:rgba(224,141,58,0.65); }
+
+  @media (min-width: 900px) {
+    #airstrikeBtn { bottom:26px; right:26px; }
+  }
+
+  #startScreen {
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; background:#0a0908; pointer-events:auto; z-index:20; text-align:center; padding:30px;
+  }
+  #startScreen h1 { color:#e0b13a; font-size:26px; letter-spacing:5px; margin-bottom:6px; }
+  #startScreen .sub { color:#8a7a52; font-size:11px; letter-spacing:2px; margin-bottom:26px; }
+  #startScreen p { color:#a89768; font-size:12px; line-height:1.7; max-width:340px; margin-bottom:24px; }
+  #startScreen button {
+    pointer-events:auto; background:#3a2f1e; color:#e0b13a; border:1px solid #a89768;
+    padding:14px 34px; font-family:inherit; font-size:15px; letter-spacing:3px; cursor:pointer;
+    border-radius:3px;
+  }
+
+  @media (min-width: 900px) {
+    #joyLeft, #joyRight, #fireBtn { display:none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div id="topbar">
+    <div class="panel">
+      <div class="barLabel">GÖVDE BÜTÜNLÜĞÜ</div>
+      <div class="barOuter"><div class="barInner" id="hpBar" style="width:100%"></div></div>
+      <div class="barLabel">SİLAH ISISI</div>
+      <div class="barOuter"><div class="barInner" id="heatBar" style="width:0%"></div></div>
+    </div>
+    <div class="panel scorePanel" id="scorePanel">
+      <div id="scoreVal">0</div>
+      <div id="allyVal">EKİP: 2/2</div>
+    </div>
+  </div>
+  <div id="missionPanel" class="panel">
+    <div class="barLabel">GÖREV</div>
+    <div id="missionText">—</div>
+  </div>
+  <div id="crosshair"></div>
+  <div id="centerMsg"></div>
+
+  <div id="joyLeft"><div class="joyStick" id="joyLeftStick"></div></div>
+  <div id="joyRight"><div class="joyStick" id="joyRightStick"></div></div>
+  <div id="fireBtn">ATEŞ</div>
+  <div id="airstrikeBtn">
+    <div class="icoLabel">HAVA<br>SALDIRISI (Q)</div>
+    <div class="cd">HAZIR</div>
+  </div>
+
+  <div id="gameOver">
+    <h1 id="gameOverTitle">ROBOT DEVRE DIŞI</h1>
+    <p id="finalScore">SKOR: 0</p>
+    <button id="restartBtn">TEKRAR SAVAŞ</button>
+  </div>
+</div>
+
+<div id="startScreen">
+  <h1>STEEL BREACH 3D</h1>
+  <div class="sub">ALTIN BASKINI GÖREVİ</div>
+  <p>
+    Sen ve <b>2 müttefik robot</b>, düşman takımının <b>2 robotuna</b> karşı savaşacak.
+    Önce karşındaki 2 düşmanı yok et — bunu başarınca sahada bir <b>altın</b> ortaya çıkacak.
+    Altını almak için üzerine yürü; ama tam o anda <b>2 yeni düşman robot</b> belirip
+    altını senden çalmaya çalışacak. Altını yanında tutup yeşil <b>üs bölgesine</b> ulaşmalı
+    ve peşindeki son 2 düşmanı da yok etmelisin — ikisi de olunca görev tamamlanır.<br><br>
+    <b>PC:</b> WASD hareket · Mouse ile bak · Sol tık ateş · Q hava saldırısı<br>
+    <b>Mobil:</b> Sol çember hareket · Sağ çember bak · ATEŞ tuşu · HAVA SALDIRISI tuşu
+  </p>
+  <button id="startBtn">GÖREVE BAŞLA</button>
+</div>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- BASIC SETUP ----------
+  const scene = new THREE.Scene();
+  const fogColor = 0x8a7a5c;
+  scene.fog = new THREE.FogExp2(fogColor, 0.016);
+  scene.background = new THREE.Color(fogColor);
+
+  const camera = new THREE.PerspectiveCamera(62, window.innerWidth/window.innerHeight, 0.1, 800);
+  const renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  document.body.insertBefore(renderer.domElement, document.getElementById('hud'));
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ---------- LIGHTING ----------
+  const hemi = new THREE.HemisphereLight(0xb8a878, 0x2a2015, 0.9);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffd9a0, 1.1);
+  sun.position.set(60, 90, -40);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024,1024);
+  sun.shadow.camera.left = -100; sun.shadow.camera.right = 100;
+  sun.shadow.camera.top = 100; sun.shadow.camera.bottom = -100;
+  sun.shadow.camera.far = 300;
+  scene.add(sun);
+
+  // ---------- GROUND ----------
+  function makeGroundTexture(){
+    const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#4a3f2c'; ctx.fillRect(0,0,512,512);
+    for(let i=0;i<3000;i++){
+      const x = Math.random()*512, y = Math.random()*512;
+      const s = Math.random()*2.2;
+      const v = Math.random()*40-20;
+      ctx.fillStyle = `rgba(${20+v},${16+v},${10+v},${0.15+Math.random()*0.3})`;
+      ctx.fillRect(x,y,s,s);
+    }
+    for(let i=0;i<40;i++){
+      ctx.strokeStyle = 'rgba(10,8,5,0.25)';
+      ctx.lineWidth = 1+Math.random()*2;
+      ctx.beginPath();
+      const x0=Math.random()*512, y0=Math.random()*512;
+      ctx.moveTo(x0,y0);
+      ctx.lineTo(x0+Math.random()*80-40, y0+Math.random()*80-40);
+      ctx.stroke();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(40,40);
+    return tex;
+  }
+  const groundMat = new THREE.MeshStandardMaterial({ map: makeGroundTexture(), roughness:1, metalness:0 });
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1000,1000,1,1), groundMat);
+  ground.rotation.x = -Math.PI/2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // distant haze ring of low hills
+  const hillMat = new THREE.MeshStandardMaterial({ color:0x5b503a, roughness:1 });
+  for(let i=0;i<24;i++){
+    const a = (i/24)*Math.PI*2;
+    const r = 180+Math.random()*60;
+    const h = 20+Math.random()*35;
+    const hill = new THREE.Mesh(new THREE.ConeGeometry(30+Math.random()*20, h, 6), hillMat);
+    hill.position.set(Math.cos(a)*r, h/2-4, Math.sin(a)*r);
+    hill.rotation.y = Math.random()*Math.PI;
+    scene.add(hill);
+  }
+
+  // battlefield debris: rocks & ruined pillars
+  const rockMat = new THREE.MeshStandardMaterial({ color:0x3d3527, roughness:0.95 });
+  const rubbleMat = new THREE.MeshStandardMaterial({ color:0x55483a, roughness:0.9 });
+  const obstacles = [];
+  function scatterDebris(){
+    for(let i=0;i<50;i++){
+      let x = Math.random()*300-150, z = Math.random()*300-150;
+      if (Math.abs(x)<12 && Math.abs(z)<12) continue;
+      const type = Math.random();
+      let m;
+      if (type < 0.5){
+        const s = 1.5+Math.random()*3;
+        m = new THREE.Mesh(new THREE.DodecahedronGeometry(s,0), rockMat);
+        m.position.set(x, s*0.4, z);
+      } else {
+        const w = 1.5+Math.random()*1.5, h = 4+Math.random()*10;
+        m = new THREE.Mesh(new THREE.BoxGeometry(w,h,w), rubbleMat);
+        m.position.set(x, h/2, z);
+        m.rotation.z = (Math.random()-0.5)*0.3;
+        m.rotation.y = Math.random()*Math.PI;
+      }
+      m.castShadow = true; m.receiveShadow = true;
+      scene.add(m);
+      obstacles.push({mesh:m, radius: (m.geometry.parameters.width||m.geometry.parameters.radius||3)*0.6});
+    }
+  }
+  scatterDebris();
+
+  // ---------- MECH BUILDER (matches reference: bulky armored torso, twin shoulder cannons, digitigrade legs) ----------
+  function armorMat(color, rough){ return new THREE.MeshStandardMaterial({ color, roughness: rough||0.65, metalness:0.35 }); }
+
+  function buildMech(scale, bodyColor, darkColor, accentColor, heavy){
+    const mech = new THREE.Group();
+    heavy = !!heavy;
+
+    const bodyM = armorMat(bodyColor);
+    const darkM = armorMat(darkColor, 0.75);
+    const accentM = armorMat(accentColor, 0.4);
+    const glowM = new THREE.MeshStandardMaterial({color:accentColor, emissive:accentColor, emissiveIntensity:0.9});
+
+    // pelvis / hip core
+    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(heavy?1.9:1.6, 1.0, heavy?1.5:1.2), darkM);
+    pelvis.position.y = 2.6;
+    mech.add(pelvis);
+
+    // torso
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(heavy?2.9:2.4, heavy?2.1:1.8, heavy?2.0:1.7), bodyM);
+    torso.position.y = heavy?4.05:3.9;
+    torso.castShadow = true;
+    mech.add(torso);
+
+    // cockpit dome — ÖN (FRONT) işareti, her zaman +Z yönüne bakar
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.55,10,8), darkM);
+    dome.position.set(0, heavy?4.75:4.55, heavy?0.95:0.75);
+    dome.scale.set(1,0.8,1);
+    mech.add(dome);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.7,0.18,0.2), new THREE.MeshStandardMaterial({color:accentColor, emissive:accentColor, emissiveIntensity:0.6}));
+    visor.position.set(0, heavy?4.7:4.5, heavy?1.35:1.15);
+    mech.add(visor);
+
+    // ---- SIRT İTİCİ PAKETİ — ARKA (BACK) işareti, her zaman -Z yönüne bakar ----
+    const exhausts = [];
+    const exhaustGlowM = new THREE.MeshStandardMaterial({color:0xff5a1f, emissive:0xff5a1f, emissiveIntensity:0.9});
+    const backpack = new THREE.Mesh(new THREE.BoxGeometry(heavy?1.8:1.3, 1.1, 0.55), darkM);
+    backpack.position.set(0, heavy?4.15:3.95, heavy?-1.15:-0.95);
+    backpack.castShadow = true;
+    mech.add(backpack);
+    [-1,1].forEach(side=>{
+      const vent = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.26,0.6,8), darkM);
+      vent.rotation.x = Math.PI/2;
+      vent.position.set(side*(heavy?0.6:0.42), heavy?4.15:3.95, heavy?-1.5:-1.25);
+      mech.add(vent);
+      // eskiden burada yuvarlak, göz gibi görünen tekil bir parıltı vardı;
+      // yerine haç şeklinde kanatları olan bir türbin/fan ızgarası konuldu
+      const ventGroup = new THREE.Group();
+      ventGroup.position.set(side*(heavy?0.6:0.42), heavy?4.15:3.95, heavy?-1.83:-1.57);
+      mech.add(ventGroup);
+      for(let f=0; f<4; f++){
+        const ang = (f/4) * Math.PI*2 + Math.PI/4;
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.3,0.04), darkM);
+        fin.position.set(Math.cos(ang)*0.03, Math.sin(ang)*0.03, 0.02);
+        fin.rotation.z = ang;
+        ventGroup.add(fin);
+      }
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.14,0.19,10), darkM);
+      ventGroup.add(ring);
+      const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.11,0.1,8), exhaustGlowM);
+      glow.rotation.x = Math.PI/2;
+      glow.position.z = -0.02;
+      ventGroup.add(glow);
+      exhausts.push(glow);
+    });
+
+    // shoulder mounts + weapons (heavy = quad roket podu, standard = ikiz namlu)
+    const shoulders = [];
+    [-1,1].forEach(side=>{
+      const mount = new THREE.Mesh(new THREE.BoxGeometry(heavy?1.3:1.0, heavy?1.1:0.9, heavy?1.3:1.1), darkM);
+      mount.position.set(side*(heavy?1.95:1.65), heavy?4.5:4.3, -0.1);
+      mech.add(mount);
+
+      const cannonGroup = new THREE.Group();
+      cannonGroup.position.set(side*(heavy?1.95:1.65), heavy?5.0:4.75, -0.1);
+
+      if (heavy){
+        for(let r=0;r<4;r++){
+          const rx = (r%2===0? -0.18:0.18), ry = (r<2? 0.18:-0.18);
+          const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.18,1.6,8), darkM);
+          tube.rotation.x = Math.PI/2 * 0.55;
+          tube.position.set(rx, 0.35+ry, -0.35);
+          tube.castShadow = true;
+          cannonGroup.add(tube);
+        }
+        const podBase = new THREE.Mesh(new THREE.CylinderGeometry(0.62,0.68,0.9,8), bodyM);
+        podBase.rotation.x = Math.PI/2;
+        cannonGroup.add(podBase);
+      } else {
+        for(let i=0;i<2;i++){
+          const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.16,2.3,8), darkM);
+          barrel.rotation.x = Math.PI/2 * 0.62;
+          barrel.position.set(side*0.28*(i-0.5)*1.6, 0.6, -0.5);
+          barrel.castShadow = true;
+          cannonGroup.add(barrel);
+        }
+        const cannonBase = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.55,0.7,8), bodyM);
+        cannonBase.rotation.x = Math.PI/2;
+        cannonGroup.add(cannonBase);
+      }
+      mech.add(cannonGroup);
+      shoulders.push(cannonGroup);
+    });
+
+    // yan depo blokları (sadece ağır tip — referans görseldeki gibi)
+    if (heavy){
+      [-1,1].forEach(side=>{
+        const pod = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.9,1.3), darkM);
+        pod.position.set(side*2.15, 3.75, 0.15);
+        pod.castShadow = true;
+        mech.add(pod);
+      });
+    }
+
+    // arms
+    const arms = [];
+    [-1,1].forEach(side=>{
+      const armGroup = new THREE.Group();
+      armGroup.position.set(side*(heavy?1.75:1.5), heavy?4.05:3.9, 0.2);
+      const upperArm = new THREE.Mesh(new THREE.BoxGeometry(heavy?0.65:0.55, heavy?1.25:1.1, heavy?0.65:0.55), darkM);
+      upperArm.position.y = -0.5;
+      armGroup.add(upperArm);
+      const foreArm = new THREE.Mesh(new THREE.BoxGeometry(heavy?0.6:0.5, heavy?1.15:1.0, heavy?0.6:0.5), bodyM);
+      foreArm.position.y = -1.5;
+      armGroup.add(foreArm);
+      mech.add(armGroup);
+      arms.push(armGroup);
+    });
+
+    // legs: digitigrade
+    const legs = [];
+    [-1,1].forEach(side=>{
+      const legGroup = new THREE.Group();
+      legGroup.position.set(side*(heavy?0.9:0.75), 2.1, 0);
+
+      const thigh = new THREE.Mesh(new THREE.BoxGeometry(heavy?0.95:0.75, 1.3, heavy?1.05:0.85), bodyM);
+      thigh.position.y = -0.5;
+      thigh.castShadow = true;
+      legGroup.add(thigh);
+
+      const kneeGroup = new THREE.Group();
+      kneeGroup.position.y = -1.3;
+      legGroup.add(kneeGroup);
+
+      const shin = new THREE.Mesh(new THREE.BoxGeometry(heavy?0.75:0.6, 1.4, heavy?0.85:0.7), darkM);
+      shin.position.y = -0.6;
+      shin.rotation.x = 0.15;
+      shin.castShadow = true;
+      kneeGroup.add(shin);
+
+      const ankleGroup = new THREE.Group();
+      ankleGroup.position.y = -1.3;
+      kneeGroup.add(ankleGroup);
+
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(heavy?0.85:0.7, 0.4, heavy?1.5:1.3), darkM);
+      foot.position.set(0,-0.2,0.25);
+      foot.castShadow = true;
+      ankleGroup.add(foot);
+
+      if (heavy){
+        for(let c=0;c<3;c++){
+          const claw = new THREE.Mesh(new THREE.ConeGeometry(0.12,0.4,5), darkM);
+          claw.rotation.x = Math.PI/2*1.15;
+          claw.position.set((c-1)*0.28, -0.38, 0.92);
+          ankleGroup.add(claw);
+        }
+      }
+
+      mech.add(legGroup);
+      legs.push({group:legGroup, knee:kneeGroup});
+    });
+
+    mech.scale.setScalar(scale);
+    return { group: mech, shoulders, arms, legs, exhausts, bodyColor, heavy, height: 5.2*scale };
+  }
+
+  // Player mech — rust/brown heavy-armor scheme (image 1 reference)
+  const player = buildMech(1.0, 0x8a6a45, 0x2c2620, 0xe0b13a);
+  player.group.position.set(0,0,0);
+  scene.add(player.group);
+
+  // ---------- ENEMY MECHS ----------
+  const enemies = [];
+  let waveTransitioning = false; // aynı anda birden fazla düşman ölünce dalganın birden fazla kez tetiklenmesini önler
+
+  // düşman mesh'inin geometri/materyallerini serbest bırakır (bellek sızıntısını önler)
+  function disposeMechGroup(group){
+    group.traverse(obj=>{
+      if (obj.isMesh){
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) obj.material.dispose();
+      }
+    });
+  }
+
+  // bir düşmanı öldürür — puan, patlama, bellek temizliği ve görev aşaması geçişini tek yerden yönetir
+  function killEnemy(e, explosionColor){
+    if (!e.alive) return;
+    e.alive = false;
+    spawnExplosion(e.mech.group.position.clone().add(new THREE.Vector3(0,3,0)), explosionColor||0xff8a3a);
+    scene.remove(e.mech.group);
+    disposeMechGroup(e.mech.group);
+    score += 100;
+    enemiesRemaining--;
+    updateHUD();
+    updateMissionText();
+    if (enemiesRemaining <= 0 && !waveTransitioning){
+      waveTransitioning = true;
+      if (missionPhase === 1){
+        // ilk 2 düşman temizlendi — altın ortaya çıkar
+        setTimeout(()=>{ if (gameRunning) spawnGold(); }, 1800);
+      }
+      // faz 2'de kazanma kontrolü ana döngüde (update) her karede yapılır
+    }
+  }
+  function spawnEnemy(forceHeavy, aggressive){
+    const isHeavy = forceHeavy || (Math.random() < 0.2);
+    const enemy = isHeavy
+      ? buildMech(1.15, 0x7a5a35, 0x2a2015, 0xff8a3a, true)
+      : buildMech(0.95, 0x565c5e, 0x24262a, 0xc94a2c, false);
+    const angle = Math.random()*Math.PI*2;
+    const dist = aggressive ? 50+Math.random()*15 : 90+Math.random()*40;
+    enemy.group.position.set(Math.cos(angle)*dist, 0, Math.sin(angle)*dist);
+    scene.add(enemy.group);
+    if (isHeavy) showCenterMsg('⚠ AĞIR AVCI TESPİT EDİLDİ ⚠');
+    enemies.push({
+      mech: enemy, hp: isHeavy?9:3, alive:true, fireTimer: 1.5+Math.random()*2,
+      walkPhase: Math.random()*10, heavy: isHeavy,
+      speed: isHeavy?3.6:(aggressive?7.4:6), stopDist: isHeavy?(aggressive?18:32):(aggressive?9:22)
+    });
+  }
+
+  // ---------- MÜTTEFİK ROBOTLAR ----------
+  const allies = [];
+  function spawnAlly(side){
+    const ally = buildMech(0.95, 0x3a5f6e, 0x1c2a2e, 0x3ecfe0, false);
+    ally.group.position.set(side*8, 0, 6);
+    ally.group.rotation.y = Math.PI;
+    scene.add(ally.group);
+    allies.push({
+      mech: ally, hp:5, alive:true, fireTimer: 1+Math.random(),
+      walkPhase: Math.random()*10, speed:6.4, stopDist:24,
+      guardOffset: {x: side*6, z:5}
+    });
+  }
+  function killAlly(a){
+    if (!a.alive) return;
+    a.alive = false;
+    spawnExplosion(a.mech.group.position.clone().add(new THREE.Vector3(0,3,0)), 0x3ecfe0);
+    scene.remove(a.mech.group);
+    disposeMechGroup(a.mech.group);
+    showCenterMsg('MÜTTEFİK KAYBEDİLDİ');
+    updateMissionText();
+  }
+
+  // ---------- PROJECTILES ----------
+  const projectiles = []; // {mesh, dir, speed, life, friendly, damage}
+  const tracerMat = new THREE.MeshBasicMaterial({ color:0xffcf6b });
+  const enemyTracerMat = new THREE.MeshBasicMaterial({ color:0xff5a3a });
+  const missileMat = new THREE.MeshBasicMaterial({ color:0xff8a3a });
+  function fireProjectile(originPos, dir, friendly, missile){
+    const geo = missile ? new THREE.CylinderGeometry(0.13,0.13,1.6,6) : new THREE.CylinderGeometry(0.06,0.06,1.1,6);
+    const mesh = new THREE.Mesh(geo, friendly?tracerMat:(missile?missileMat:enemyTracerMat));
+    mesh.position.copy(originPos);
+    const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
+    mesh.quaternion.copy(quat);
+    scene.add(mesh);
+    projectiles.push({ mesh, dir: dir.clone().normalize(), speed: friendly?150:(missile?55:70), life: 3.4, friendly, damage: missile?13:6 });
+  }
+
+  // ---------- EXPLOSIONS ----------
+  const explosions = [];
+  function spawnExplosion(pos, color){
+    const group = new THREE.Group();
+    for(let i=0;i<10;i++){
+      const s = 0.15+Math.random()*0.35;
+      const m = new THREE.Mesh(new THREE.SphereGeometry(s,6,6), new THREE.MeshBasicMaterial({color: color||0xff8a3a}));
+      m.position.copy(pos);
+      const v = new THREE.Vector3((Math.random()-0.5)*10,(Math.random())*8,(Math.random()-0.5)*10);
+      group.add(m);
+      explosions.push({mesh:m, vel:v, life:0.6+Math.random()*0.3, age:0});
+    }
+    scene.add(group);
+  }
+
+  function spawnDust(pos){
+    for(let i=0;i<3;i++){
+      const s = 0.12+Math.random()*0.18;
+      const m = new THREE.Mesh(new THREE.SphereGeometry(s,5,5), new THREE.MeshBasicMaterial({color:0x8a7a55, transparent:true, opacity:0.5}));
+      m.position.copy(pos);
+      const v = new THREE.Vector3((Math.random()-0.5)*2, Math.random()*1.5, (Math.random()-0.5)*2);
+      explosions.push({mesh:m, vel:v, life:0.5+Math.random()*0.3, age:0});
+      scene.add(m);
+    }
+  }
+
+  // ---------- CAMERA SHAKE ----------
+  let shakeTime = 0, shakeMag = 0;
+  function shakeCamera(mag){
+    shakeMag = Math.max(shakeMag, mag);
+    shakeTime = 0.4;
+  }
+
+  // ---------- HAVA SALDIRISI (AIR STRIKE) ----------
+  let airstrikeCooldown = 0, airstrikeMax = 14;
+  const strikeMarkerMat = new THREE.MeshBasicMaterial({ color:0xff3a1a, transparent:true, opacity:0.55, side:THREE.DoubleSide });
+  function performAirstrike(){
+    if (!gameRunning || airstrikeCooldown > 0) return;
+    airstrikeCooldown = airstrikeMax;
+    const forward = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,yaw,0));
+    const target = player.group.position.clone().addScaledVector(forward, 26);
+    target.y = 0;
+
+    const ring = new THREE.Mesh(new THREE.RingGeometry(9.5,11,24), strikeMarkerMat);
+    ring.rotation.x = -Math.PI/2;
+    ring.position.copy(target); ring.position.y = 0.1;
+    scene.add(ring);
+    showCenterMsg('HAVA SALDIRISI ÇAĞRILDI');
+
+    for(let i=0;i<6;i++){
+      setTimeout(()=>{
+        const offset = new THREE.Vector3((Math.random()-0.5)*16,0,(Math.random()-0.5)*16);
+        const strikePos = target.clone().add(offset);
+        const missileMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.25,3,6), missileMat);
+        missileMesh.position.set(strikePos.x, 60, strikePos.z);
+        scene.add(missileMesh);
+        const startT = performance.now();
+        function fall(){
+          const t = (performance.now()-startT)/1000/0.5;
+          if (t >= 1){
+            scene.remove(missileMesh);
+            spawnExplosion(strikePos, 0xff8a3a);
+            spawnExplosion(strikePos, 0xffcf6b);
+            shakeCamera(0.35);
+            enemies.forEach(e=>{
+              if (!e.alive) return;
+              if (e.mech.group.position.distanceTo(strikePos) < 9){
+                e.hp -= 6;
+                if (e.hp <= 0) killEnemy(e);
+              }
+            });
+            return;
+          }
+          missileMesh.position.y = 60*(1-t);
+          requestAnimationFrame(fall);
+        }
+        fall();
+      }, i*140);
+    }
+    setTimeout(()=>{ scene.remove(ring); }, 1200);
+  }
+
+  // ---------- INPUT ----------
+  const keys = {};
+  window.addEventListener('keydown', e=>keys[e.key.toLowerCase()]=true);
+  window.addEventListener('keyup', e=>keys[e.key.toLowerCase()]=false);
+  window.addEventListener('keydown', e=>{ if (e.key.toLowerCase()==='q') performAirstrike(); });
+
+  let yaw = 0, pitch = -0.12;
+  let mouseDown = false;
+  renderer.domElement.addEventListener('mousedown', ()=>{ mouseDown = true; firing = true; });
+  window.addEventListener('mouseup', ()=>{ mouseDown = false; firing = false; });
+  window.addEventListener('mousemove', e=>{
+    if (document.pointerLockElement === renderer.domElement){
+      yaw -= e.movementX*0.0025;
+      pitch -= e.movementY*0.0025;
+      pitch = Math.max(-0.6, Math.min(0.35, pitch));
+    }
+  });
+  renderer.domElement.addEventListener('click', ()=>{
+    if (gameRunning && !document.pointerLockElement && window.innerWidth > 899){
+      renderer.domElement.requestPointerLock();
+    }
+  });
+
+  let firing = false;
+
+  // touch joysticks
+  function setupJoystick(zoneId, stickId, onMove, onEnd){
+    const zone = document.getElementById(zoneId);
+    const stick = document.getElementById(stickId);
+    let active = false, startX=0, startY=0, touchId=null;
+    zone.addEventListener('touchstart', e=>{
+      const t = e.changedTouches[0];
+      active = true; touchId = t.identifier;
+      const rect = zone.getBoundingClientRect();
+      startX = rect.left+rect.width/2; startY = rect.top+rect.height/2;
+      e.preventDefault();
+    }, {passive:false});
+    zone.addEventListener('touchmove', e=>{
+      if(!active) return;
+      for(const t of e.changedTouches){
+        if (t.identifier!==touchId) continue;
+        let dx = t.clientX-startX, dy = t.clientY-startY;
+        const max = 45;
+        const len = Math.hypot(dx,dy);
+        if (len>max){ dx = dx/len*max; dy = dy/len*max; }
+        stick.style.transform = `translate(${dx-26}px, ${dy-26}px)`;
+        onMove(dx/max, dy/max);
+      }
+      e.preventDefault();
+    }, {passive:false});
+    const end = e=>{
+      active = false;
+      stick.style.transform = 'translate(-50%,-50%)';
+      onEnd();
+    };
+    zone.addEventListener('touchend', end);
+    zone.addEventListener('touchcancel', end);
+  }
+
+  let moveX=0, moveZ=0, lookX=0, lookY=0;
+  setupJoystick('joyLeft','joyLeftStick', (x,y)=>{ moveX=x; moveZ=y; }, ()=>{ moveX=0; moveZ=0; });
+  setupJoystick('joyRight','joyRightStick', (x,y)=>{ lookX=x; lookY=y; }, ()=>{ lookX=0; lookY=0; });
+
+  const fireBtn = document.getElementById('fireBtn');
+  fireBtn.addEventListener('touchstart', e=>{ firing = true; fireBtn.classList.add('active'); e.preventDefault(); }, {passive:false});
+  fireBtn.addEventListener('touchend', e=>{ firing = false; fireBtn.classList.remove('active'); e.preventDefault(); }, {passive:false});
+
+  const airstrikeBtn = document.getElementById('airstrikeBtn');
+  airstrikeBtn.addEventListener('click', performAirstrike);
+  airstrikeBtn.addEventListener('touchstart', e=>{ e.preventDefault(); performAirstrike(); }, {passive:false});
+
+  // ---------- GAME STATE ----------
+  let gameRunning = false;
+  let hp = 100, heat = 0, score = 0, enemiesRemaining = 0;
+  let fireTimer = 0, dustTimer = 0;
+  // missionPhase: 1 = ilk 2 düşmanı yok et, 'goldWait' = altın bekleniyor, 2 = altını üsse taşı
+  let missionPhase = 1;
+  let goldMesh = null, goldCarried = false, goldPickupCooldown = 0, goldCarryIcon = null;
+  let extractionMesh = null;
+  const extractionPos = new THREE.Vector3(0, 0, 4);
+  const clock = new THREE.Clock();
+
+  function updateHUD(){
+    document.getElementById('hpBar').style.width = Math.max(0,hp)+'%';
+    document.getElementById('heatBar').style.width = Math.min(100,heat)+'%';
+    document.getElementById('scoreVal').textContent = score;
+    const airBtn = document.getElementById('airstrikeBtn');
+    if (airBtn){
+      if (airstrikeCooldown > 0){
+        airBtn.classList.add('cooling');
+        airBtn.querySelector('.cd').textContent = Math.ceil(airstrikeCooldown)+'s';
+      } else {
+        airBtn.classList.remove('cooling');
+        airBtn.querySelector('.cd').textContent = 'HAZIR';
+      }
+    }
+  }
+
+  function updateMissionText(){
+    const el = document.getElementById('missionText');
+    const allyEl = document.getElementById('allyVal');
+    if (allyEl) allyEl.textContent = 'EKİP: ' + allies.filter(a=>a.alive).length + '/2';
+    if (!el) return;
+    if (missionPhase === 1){
+      el.textContent = 'Düşmanları yok et — kalan: ' + Math.max(0,enemiesRemaining);
+    } else if (missionPhase === 'goldWait'){
+      el.textContent = 'Altını al';
+    } else if (missionPhase === 2){
+      el.textContent = enemiesRemaining > 0
+        ? 'Altını koru — düşman: ' + enemiesRemaining
+        : 'Üsse dön ve altını teslim et';
+    }
+  }
+
+  function showCenterMsg(text){
+    const el = document.getElementById('centerMsg');
+    el.textContent = text;
+    el.style.opacity = 1;
+    setTimeout(()=>{ el.style.opacity = 0; }, 1600);
+  }
+
+  // ---------- ALTIN ----------
+  function spawnGoldMesh(pos){
+    if (goldMesh){ scene.remove(goldMesh); goldMesh = null; }
+    const geo = new THREE.OctahedronGeometry(1.1, 0);
+    const mat = new THREE.MeshStandardMaterial({color:0xffd54a, emissive:0xffae00, emissiveIntensity:0.7, metalness:0.6, roughness:0.3});
+    goldMesh = new THREE.Mesh(geo, mat);
+    goldMesh.position.copy(pos);
+    goldMesh.position.y = 1.6;
+    goldMesh.castShadow = true;
+    scene.add(goldMesh);
+  }
+
+  function spawnGold(){
+    missionPhase = 'goldWait';
+    const angle = Math.random()*Math.PI*2;
+    const dist = 16+Math.random()*10;
+    spawnGoldMesh(new THREE.Vector3(Math.cos(angle)*dist, 0, Math.sin(angle)*dist));
+    showCenterMsg('★ ALTIN ORTAYA ÇIKTI — ÜZERİNE YÜRÜ ★');
+    updateMissionText();
+  }
+
+  function spawnExtractionBeacon(){
+    if (extractionMesh) return;
+    extractionMesh = new THREE.Group();
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(3.6,4.2,24),
+      new THREE.MeshBasicMaterial({color:0x3ecf6a, side:THREE.DoubleSide, transparent:true, opacity:0.85})
+    );
+    ring.rotation.x = -Math.PI/2;
+    ring.position.y = 0.05;
+    extractionMesh.add(ring);
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.15,0.15,40,8),
+      new THREE.MeshBasicMaterial({color:0x3ecf6a, transparent:true, opacity:0.35})
+    );
+    beam.position.y = 20;
+    extractionMesh.add(beam);
+    extractionMesh.position.copy(extractionPos);
+    scene.add(extractionMesh);
+  }
+
+  function updateGoldCarryIcon(){
+    if (goldCarried && !goldCarryIcon){
+      const geo = new THREE.OctahedronGeometry(0.5,0);
+      const mat = new THREE.MeshStandardMaterial({color:0xffd54a, emissive:0xffae00, emissiveIntensity:0.8});
+      goldCarryIcon = new THREE.Mesh(geo, mat);
+      goldCarryIcon.position.set(0, 6.3, -1.2);
+      player.group.add(goldCarryIcon);
+    } else if (!goldCarried && goldCarryIcon){
+      player.group.remove(goldCarryIcon);
+      goldCarryIcon = null;
+    }
+  }
+
+  function pickupGold(){
+    goldCarried = true;
+    scene.remove(goldMesh); goldMesh = null;
+    updateGoldCarryIcon();
+    missionPhase = 2;
+    enemiesRemaining = 2;
+    waveTransitioning = false;
+    showCenterMsg('ALTIN ELE GEÇİRİLDİ! ÜSSE DÖN VE SAVUN');
+    spawnExtractionBeacon();
+    setTimeout(()=>{ if(gameRunning) spawnEnemy(false, true); }, 500);
+    setTimeout(()=>{ if(gameRunning) spawnEnemy(false, true); }, 1300);
+    updateMissionText();
+  }
+
+  function stealGold(){
+    goldCarried = false;
+    goldPickupCooldown = 1.6;
+    updateGoldCarryIcon();
+    spawnGoldMesh(player.group.position.clone());
+    showCenterMsg('⚠ ALTIN DÜŞÜRÜLDÜ — GERİ AL! ⚠');
+    shakeCamera(0.3);
+    updateMissionText();
+  }
+
+  function startMission(){
+    missionPhase = 1;
+    waveTransitioning = false;
+    enemiesRemaining = 2;
+    goldCarried = false;
+    if (goldMesh){ scene.remove(goldMesh); goldMesh = null; }
+    if (extractionMesh){ scene.remove(extractionMesh); extractionMesh = null; }
+    updateGoldCarryIcon();
+    showCenterMsg('GÖREV: 2 DÜŞMAN ROBOTUNU YOK ET');
+    spawnAlly(-1);
+    spawnAlly(1);
+    setTimeout(()=>{ if(gameRunning) spawnEnemy(false); }, 400);
+    setTimeout(()=>{ if(gameRunning) spawnEnemy(false); }, 1200);
+    updateMissionText();
+  }
+
+  function winGame(){
+    gameRunning = false;
+    document.getElementById('gameOver').classList.add('win');
+    document.getElementById('gameOverTitle').textContent = 'GÖREV BAŞARILI';
+    document.getElementById('finalScore').textContent = 'ALTIN GÜVENDE — SKOR: ' + score;
+    document.getElementById('gameOver').style.display = 'flex';
+    document.exitPointerLock && document.exitPointerLock();
+  }
+
+  function endGame(){
+    gameRunning = false;
+    document.getElementById('gameOver').classList.remove('win');
+    document.getElementById('gameOverTitle').textContent = 'ROBOT DEVRE DIŞI';
+    document.getElementById('finalScore').textContent = 'SKOR: ' + score;
+    document.getElementById('gameOver').style.display = 'flex';
+    document.exitPointerLock && document.exitPointerLock();
+  }
+
+  document.getElementById('restartBtn').addEventListener('click', ()=>{
+    hp=100; heat=0; score=0; airstrikeCooldown=0; waveTransitioning=false;
+    enemies.forEach(e=>{ scene.remove(e.mech.group); disposeMechGroup(e.mech.group); });
+    enemies.length = 0;
+    allies.forEach(a=>{ scene.remove(a.mech.group); disposeMechGroup(a.mech.group); });
+    allies.length = 0;
+    // önceki oyundan kalan mermi/patlamaları temizle — yoksa yeni oyuna sızıyorlardı
+    projectiles.forEach(p=>scene.remove(p.mesh));
+    projectiles.length = 0;
+    explosions.forEach(ex=>scene.remove(ex.mesh));
+    explosions.length = 0;
+    firing = false; fireTimer = 0; dustTimer = 0;
+    player.group.position.set(0,0,0);
+    yaw = 0; pitch = -0.12;
+    document.getElementById('gameOver').style.display = 'none';
+    document.getElementById('gameOver').classList.remove('win');
+    updateHUD();
+    startMission();
+    gameRunning = true;
+  });
+
+  document.getElementById('startBtn').addEventListener('click', ()=>{
+    document.getElementById('startScreen').style.display = 'none';
+    gameRunning = true;
+    startMission();
+  });
+
+  // ---------- MECH ANIMATION HELPERS ----------
+  function animateWalk(mechData, phase, moving){
+    mechData.legs.forEach((leg, i)=>{
+      const target = moving ? Math.sin(phase*8 + (i*Math.PI)) * 0.5 : 0;
+      leg.group.rotation.x += (target - leg.group.rotation.x)*0.3;
+      const kneeTarget = moving ? Math.max(0, Math.sin(phase*8 + (i*Math.PI))) * 0.7 : 0.1;
+      leg.knee.rotation.x += (kneeTarget - leg.knee.rotation.x)*0.3;
+    });
+    if (mechData.arms){
+      mechData.arms.forEach((arm, i)=>{
+        const s = i===0?1:-1;
+        const target = moving ? Math.sin(phase*8 + (i*Math.PI))*0.26*s : 0;
+        arm.rotation.x += (target - arm.rotation.x)*0.25;
+      });
+    }
+    // gövde sıçraması — yürürken hafif zıplama, dinamizm katar
+    const bobTarget = moving ? Math.abs(Math.sin(phase*8))*0.08 : 0;
+    mechData._bob = (mechData._bob||0) + (bobTarget - (mechData._bob||0))*0.3;
+    mechData.group.position.y = mechData._bob;
+    // sırt itici parıltısı — hareket halindeyken parlar (ARKA'yı belirginleştirir)
+    if (mechData.exhausts){
+      const targetInt = moving ? 1.4+Math.sin(phase*20)*0.3 : 0.5;
+      mechData.exhausts.forEach(g=>{
+        g.material.emissiveIntensity += (targetInt - g.material.emissiveIntensity)*0.2;
+      });
+    }
+  }
+
+  // ---------- MAIN LOOP ----------
+  function playerFire(dt){
+    if (heat >= 100) return;
+    fireTimer -= dt;
+    if (fireTimer <= 0){
+      fireTimer = 0.14;
+      heat = Math.min(100, heat+7);
+      const dir = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,yaw,0));
+      dir.y += pitch*0.5;
+      player.shoulders.forEach(s=>{
+        const pos = new THREE.Vector3();
+        s.getWorldPosition(pos);
+        fireProjectile(pos, dir, true);
+      });
+    }
+  }
+
+  function update(dt){
+    if (!gameRunning) return;
+
+    // --- movement input ---
+    let mx = moveX, mz = moveZ;
+    if (keys['w']) mz = -1;
+    if (keys['s']) mz = 1;
+    if (keys['a']) mx = -1;
+    if (keys['d']) mx = 1;
+
+    if (lookX || lookY){
+      yaw -= lookX*dt*2.2;
+      pitch -= lookY*dt*1.6;
+      pitch = Math.max(-0.6, Math.min(0.35, pitch));
+    }
+
+    const moving = Math.hypot(mx,mz) > 0.05;
+    if (moving){
+      const forward = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,yaw,0));
+      const right = new THREE.Vector3(1,0,0).applyEuler(new THREE.Euler(0,yaw,0));
+      const move = new THREE.Vector3()
+        .addScaledVector(forward, -mz)
+        .addScaledVector(right, mx);
+      move.normalize().multiplyScalar(14*dt);
+      const newPos = player.group.position.clone().add(move);
+      let blocked = false;
+      for(const o of obstacles){
+        if (newPos.distanceTo(o.mesh.position) < o.radius+1.3){ blocked = true; break; }
+      }
+      if (!blocked){
+        player.group.position.copy(newPos);
+      }
+      dustTimer -= dt;
+      if (dustTimer <= 0){
+        dustTimer = 0.13;
+        const footPos = player.group.position.clone(); footPos.y += 0.2;
+        spawnDust(footPos);
+      }
+    }
+    player.group.rotation.y = yaw;
+    animateWalk(player, clock.elapsedTime, moving);
+
+    // heat cooldown — aşırı ısındığında tetik basılı tutulsa bile soğumalı,
+    // yoksa silah kalıcı olarak kilitlenip ateş edilemez hale geliyordu
+    if (!firing || heat >= 100) heat = Math.max(0, heat - dt*22);
+    if (firing) playerFire(dt);
+    if (airstrikeCooldown > 0) airstrikeCooldown = Math.max(0, airstrikeCooldown - dt);
+
+    // camera follow (third person, over-the-shoulder)
+    const camOffset = new THREE.Vector3(0, 6.5, 11).applyEuler(new THREE.Euler(0,yaw,0));
+    const desiredCamPos = player.group.position.clone().add(camOffset);
+    camera.position.lerp(desiredCamPos, 1-Math.pow(0.001,dt));
+    if (shakeTime > 0){
+      shakeTime -= dt;
+      const s = shakeMag * Math.max(0, shakeTime/0.4);
+      camera.position.x += (Math.random()-0.5)*s;
+      camera.position.y += (Math.random()-0.5)*s;
+      if (shakeTime <= 0) shakeMag = 0;
+    }
+    const lookTarget = player.group.position.clone().add(new THREE.Vector3(0, 4.5 + pitch*10, 0));
+    camera.lookAt(lookTarget);
+
+    // --- enemies ---
+    enemies.forEach(e=>{
+      if (!e.alive) return;
+      const pos = e.mech.group.position;
+      // en yakın hedefi seç: oyuncu ya da hayattaki bir müttefik
+      let targetPos = player.group.position, targetDist = pos.distanceTo(player.group.position);
+      allies.forEach(a=>{
+        if (!a.alive) return;
+        const d = pos.distanceTo(a.mech.group.position);
+        if (d < targetDist){ targetDist = d; targetPos = a.mech.group.position; }
+      });
+      const toTarget = targetPos.clone().sub(pos);
+      const dist = toTarget.length();
+      const dir = toTarget.clone().normalize();
+      let moving2 = false;
+      const stopDist = e.stopDist || 22;
+      if (dist > stopDist){
+        pos.addScaledVector(dir, (e.speed||6)*dt);
+        moving2 = true;
+      }
+      const targetYaw = Math.atan2(dir.x, dir.z);
+      e.mech.group.rotation.y += (targetYaw - e.mech.group.rotation.y)*0.08;
+      e.walkPhase += dt;
+      animateWalk(e.mech, e.walkPhase, moving2);
+
+      e.fireTimer -= dt;
+      if (e.fireTimer <= 0 && dist < 95){
+        if (e.heavy){
+          e.fireTimer = 2.6 + Math.random()*1.4;
+          [0,1].forEach(sh=>{
+            const originPos = new THREE.Vector3();
+            e.mech.shoulders[sh].getWorldPosition(originPos);
+            for(let s=-1;s<=1;s++){
+              const spread = new THREE.Vector3((Math.random()-0.5+s*0.1)*0.16, Math.random()*0.08, 0);
+              const fireDir = targetPos.clone().add(new THREE.Vector3(0,3.8,0)).sub(originPos).normalize().add(spread).normalize();
+              fireProjectile(originPos, fireDir, false, true);
+            }
+          });
+        } else {
+          e.fireTimer = 1.6 + Math.random()*1.2;
+          const originPos = new THREE.Vector3();
+          e.mech.shoulders[0].getWorldPosition(originPos);
+          const fireDir = targetPos.clone().add(new THREE.Vector3(0,3.8,0)).sub(originPos).normalize();
+          fireProjectile(originPos, fireDir, false);
+        }
+      }
+    });
+
+    // --- allies ---
+    allies.forEach(a=>{
+      if (!a.alive) return;
+      const pos = a.mech.group.position;
+      let nearestEnemy = null, nearestDist = Infinity;
+      enemies.forEach(en=>{
+        if (!en.alive) return;
+        const d = pos.distanceTo(en.mech.group.position);
+        if (d < nearestDist){ nearestDist = d; nearestEnemy = en; }
+      });
+      const targetPos = nearestEnemy
+        ? nearestEnemy.mech.group.position
+        : player.group.position.clone().add(new THREE.Vector3(a.guardOffset.x, 0, a.guardOffset.z));
+      const toTarget = targetPos.clone().sub(pos);
+      const dist = toTarget.length();
+      const dir = toTarget.clone().normalize();
+      let moving2 = false;
+      const stopDist = nearestEnemy ? (a.stopDist||24) : 2.5;
+      if (dist > stopDist){
+        pos.addScaledVector(dir, (a.speed||6)*dt);
+        moving2 = true;
+      }
+      const targetYaw = Math.atan2(dir.x, dir.z);
+      a.mech.group.rotation.y += (targetYaw - a.mech.group.rotation.y)*0.08;
+      a.walkPhase += dt;
+      animateWalk(a.mech, a.walkPhase, moving2);
+
+      if (nearestEnemy){
+        a.fireTimer -= dt;
+        if (a.fireTimer <= 0 && nearestDist < 95){
+          a.fireTimer = 1.5 + Math.random()*1.1;
+          const originPos = new THREE.Vector3();
+          a.mech.shoulders[0].getWorldPosition(originPos);
+          const fireDir = nearestEnemy.mech.group.position.clone().add(new THREE.Vector3(0,3.8,0)).sub(originPos).normalize();
+          fireProjectile(originPos, fireDir, true);
+        }
+      }
+    });
+
+    // --- altın: alma, çalınma, kazanma kontrolleri ---
+    if (goldPickupCooldown > 0) goldPickupCooldown = Math.max(0, goldPickupCooldown - dt);
+    if (goldMesh){
+      goldMesh.rotation.y += dt*1.6;
+      goldMesh.position.y = 1.6 + Math.sin(clock.elapsedTime*2)*0.15;
+      if (!goldCarried && goldPickupCooldown <= 0 && player.group.position.distanceTo(goldMesh.position) < 4){
+        pickupGold();
+      }
+    }
+    if (goldCarried && missionPhase === 2){
+      for (const e of enemies){
+        if (!e.alive) continue;
+        if (e.mech.group.position.distanceTo(player.group.position) < 3.2){
+          stealGold();
+          break;
+        }
+      }
+    }
+    if (missionPhase === 2 && goldCarried && enemiesRemaining <= 0 && gameRunning){
+      if (player.group.position.distanceTo(extractionPos) < 5){
+        winGame();
+      }
+    }
+
+    // --- projectiles ---
+    for(let i=projectiles.length-1;i>=0;i--){
+      const p = projectiles[i];
+      p.mesh.position.addScaledVector(p.dir, p.speed*dt);
+      p.life -= dt;
+      let hit = false;
+
+      if (p.friendly){
+        for(const e of enemies){
+          if (!e.alive) continue;
+          const ePos = e.mech.group.position.clone(); ePos.y += 3.5;
+          if (p.mesh.position.distanceTo(ePos) < 2.2){
+            hit = true;
+            e.hp -= 1;
+            spawnExplosion(p.mesh.position, 0xffcf6b);
+            if (e.hp <= 0) killEnemy(e);
+            break;
+          }
+        }
+      } else {
+        const pPos = player.group.position.clone(); pPos.y += 3.5;
+        if (p.mesh.position.distanceTo(pPos) < 2.0){
+          hit = true;
+          hp -= (p.damage||6);
+          spawnExplosion(p.mesh.position, 0xff5a3a);
+          shakeCamera((p.damage||6)>=10 ? 0.4 : 0.18);
+          updateHUD();
+          if (hp <= 0 && gameRunning) endGame();
+        } else {
+          for (const a of allies){
+            if (!a.alive) continue;
+            const aPos = a.mech.group.position.clone(); aPos.y += 3.5;
+            if (p.mesh.position.distanceTo(aPos) < 2.2){
+              hit = true;
+              a.hp -= (p.damage||6);
+              spawnExplosion(p.mesh.position, 0xff5a3a);
+              if (a.hp <= 0) killAlly(a);
+              break;
+            }
+          }
+        }
+      }
+
+      if (hit || p.life <= 0 || p.mesh.position.y < -2){
+        scene.remove(p.mesh);
+        projectiles.splice(i,1);
+      }
+    }
+
+    // --- explosions ---
+    for(let i=explosions.length-1;i>=0;i--){
+      const ex = explosions[i];
+      ex.age += dt;
+      ex.mesh.position.addScaledVector(ex.vel, dt);
+      ex.vel.y -= 12*dt;
+      const t = ex.age/ex.life;
+      ex.mesh.scale.setScalar(Math.max(0.01,1-t));
+      if (ex.age >= ex.life){
+        scene.remove(ex.mesh);
+        explosions.splice(i,1);
+      }
+    }
+
+    updateHUD();
+  }
+
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = Math.min(0.05, clock.getDelta());
+    update(dt);
+    renderer.render(scene, camera);
+  }
+  updateHUD();
+  animate();
+
+})();
+</script>
+</body>
+</html>
