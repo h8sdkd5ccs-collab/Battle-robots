@@ -71,6 +71,30 @@
   }
   #missionText { color:#e0b13a; font-size:12px; letter-spacing:0.5px; }
 
+  /* Takım Düzenleme (Squad Refit) ekranı */
+  #refitOverlay {
+    position:absolute; inset:0; display:none; align-items:center; justify-content:flex-start;
+    flex-direction:column; background:rgba(5,4,3,0.94); pointer-events:auto;
+    padding:28px 20px; overflow-y:auto; z-index:60;
+  }
+  #refitOverlay h2 { color:#e0b13a; font-size:22px; letter-spacing:3px; margin-bottom:6px; text-align:center; }
+  #refitOverlay p { color:#d8c9a3; font-size:12px; margin-bottom:18px; text-align:center; max-width:420px; letter-spacing:0.4px; }
+  .refitRow { width:100%; max-width:420px; margin-bottom:14px; }
+  .refitRowLabel { color:#e0b13a; font-size:12px; letter-spacing:1px; margin-bottom:6px; }
+  .refitCards { display:flex; gap:8px; }
+  .refitCard {
+    flex:1; pointer-events:auto; padding:10px 4px; font-family:inherit; font-size:12px;
+    letter-spacing:0.5px; border-radius:4px; cursor:pointer; background:#1c1712; color:#e0b13a;
+    border:1px solid #5a4f38; text-align:center; line-height:1.4;
+  }
+  .refitCard.active { border-color:#e0b13a; background:#3a2f1e; }
+  .refitCard b { display:block; font-size:13px; letter-spacing:1px; }
+  #refitContinueBtn {
+    margin-top:8px; pointer-events:auto; background:#3a2f1e; color:#e0b13a; border:1px solid #a89768;
+    padding:12px 30px; font-family:inherit; font-size:14px; letter-spacing:2px; cursor:pointer;
+    border-radius:3px;
+  }
+
   /* Touch controls */
   #joyLeft, #joyRight {
     position:absolute; bottom:26px; width:120px; height:120px; border-radius:50%;
@@ -144,6 +168,7 @@
   <div id="missionPanel" class="panel">
     <div class="barLabel">GÖREV</div>
     <div id="missionText">—</div>
+    <div id="envTag" style="margin-top:4px; font-size:10px; opacity:0.75; letter-spacing:0.5px;">☀ GÜNDÜZ · AÇIK HAVA</div>
   </div>
   <div id="crosshair"></div>
   <div id="centerMsg"></div>
@@ -160,6 +185,14 @@
     <h1 id="gameOverTitle">ROBOT DEVRE DIŞI</h1>
     <p id="finalScore">SKOR: 0</p>
     <button id="restartBtn">TEKRAR SAVAŞ</button>
+  </div>
+
+  <div id="refitOverlay">
+    <h2>TAKIM DÜZENLEME</h2>
+    <p>Altını ele geçirdin — onarım tamamlandı. İstersen kendi robotunu veya müttefiklerini farklı bir şasiyle değiştir.</p>
+    <div id="refitPlayerRow" class="refitRow"></div>
+    <div id="refitAllyRows"></div>
+    <button id="refitContinueBtn">DEVAM ET</button>
   </div>
 </div>
 
@@ -203,6 +236,140 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
+  // ---------- SES MOTORU (Web Audio API — dış ses dosyası gerektirmez) ----------
+  let audioCtx = null;
+  function ensureAudio(){
+    if (!audioCtx){
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ return null; }
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+  ['click','touchstart','keydown'].forEach(evt=>window.addEventListener(evt, ()=>ensureAudio(), {once:true}));
+
+  function sfxGain(vol){
+    const ctx = audioCtx;
+    const g = ctx.createGain();
+    g.gain.value = vol;
+    g.connect(ctx.destination);
+    return g;
+  }
+  // silah ateşi (lazer/blaster) — dost mermiler daha tiz, düşman mermileri daha pes
+  function playShot(friendly){
+    const ctx = ensureAudio(); if (!ctx) return;
+    const o = ctx.createOscillator();
+    const g = sfxGain(friendly?0.08:0.065);
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(friendly?900:620, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(friendly?230:150, ctx.currentTime+0.11);
+    g.gain.setValueAtTime(g.gain.value, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.13);
+    o.connect(g);
+    o.start(); o.stop(ctx.currentTime+0.14);
+  }
+  // patlama (gürültü patlaması + alçalan filtre)
+  function playExplosion(big){
+    const ctx = ensureAudio(); if (!ctx) return;
+    const dur = big ? 0.9 : 0.4;
+    const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate*dur), ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i=0;i<data.length;i++) data[i] = (Math.random()*2-1) * Math.pow(1-i/data.length, 2);
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(big?1000:1500, ctx.currentTime);
+    filter.frequency.exponentialRampToValueAtTime(70, ctx.currentTime+dur);
+    const g = sfxGain(big?0.45:0.22);
+    noise.connect(filter); filter.connect(g);
+    noise.start();
+  }
+  // mech ayak sesi — ağırlığa göre pes/tiz, mesafeye göre kısılır
+  function playStep(heavy, dist){
+    const ctx = ensureAudio(); if (!ctx) return;
+    const atten = Math.max(0, 1 - (dist||0)/70);
+    if (atten <= 0.03) return;
+    const o = ctx.createOscillator();
+    const g = sfxGain((heavy?0.15:0.08)*atten);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(heavy?68:98, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(34, ctx.currentTime+0.12);
+    g.gain.setValueAtTime(g.gain.value, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.15);
+    o.connect(g);
+    o.start(); o.stop(ctx.currentTime+0.16);
+  }
+  // robot homurtusu/hırıltısı — düşman belirdiğinde veya devre dışı kalırken
+  function playGrowl(low){
+    const ctx = ensureAudio(); if (!ctx) return;
+    const dur = 0.5;
+    const o = ctx.createOscillator(), o2 = ctx.createOscillator();
+    o.type = 'sawtooth'; o2.type = 'square';
+    const f0 = low?85:130;
+    o.frequency.setValueAtTime(f0, ctx.currentTime);
+    o.frequency.linearRampToValueAtTime(f0*0.6, ctx.currentTime+dur);
+    o2.frequency.setValueAtTime(f0*1.5, ctx.currentTime);
+    o2.frequency.linearRampToValueAtTime(f0*0.9, ctx.currentTime+dur);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass'; filter.frequency.value = 480;
+    const g = sfxGain(0.0001);
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(0.12, ctx.currentTime+0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+dur);
+    o.connect(filter); o2.connect(filter); filter.connect(g);
+    o.start(); o2.start();
+    o.stop(ctx.currentTime+dur); o2.stop(ctx.currentTime+dur);
+  }
+  // altın toplama çınlaması
+  function playChime(){
+    const ctx = ensureAudio(); if (!ctx) return;
+    [880,1108,1318].forEach((f,i)=>{
+      const o = ctx.createOscillator();
+      const g = sfxGain(0.08);
+      o.type = 'sine'; o.frequency.value = f;
+      const t0 = ctx.currentTime + i*0.07;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(0.09, t0+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+0.4);
+      o.connect(g);
+      o.start(t0); o.stop(t0+0.42);
+    });
+  }
+  // görev tamamlandı fanfarı
+  function playFanfare(){
+    const ctx = ensureAudio(); if (!ctx) return;
+    [523,659,784,1047].forEach((f,i)=>{
+      const o = ctx.createOscillator();
+      const g = sfxGain(0.09);
+      o.type = 'triangle'; o.frequency.value = f;
+      const t0 = ctx.currentTime + i*0.12;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(0.1, t0+0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+0.5);
+      o.connect(g);
+      o.start(t0); o.stop(t0+0.52);
+    });
+  }
+  // savaş gemisi motor uğultusu — durdurma fonksiyonu döner
+  function playShipDrone(){
+    const ctx = ensureAudio(); if (!ctx) return null;
+    const o = ctx.createOscillator(), o2 = ctx.createOscillator();
+    o.type = 'sawtooth'; o2.type = 'sawtooth';
+    o.frequency.value = 60; o2.frequency.value = 63;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass'; filter.frequency.value = 220;
+    const g = sfxGain(0.0001);
+    g.gain.linearRampToValueAtTime(0.11, ctx.currentTime+0.6);
+    o.connect(filter); o2.connect(filter); filter.connect(g);
+    o.start(); o2.start();
+    return ()=>{
+      try{
+        g.gain.linearRampToValueAtTime(0.0001, ctx.currentTime+0.8);
+        o.stop(ctx.currentTime+0.85); o2.stop(ctx.currentTime+0.85);
+      } catch(e){}
+    };
+  }
+
   // ---------- LIGHTING ----------
   const hemi = new THREE.HemisphereLight(0xb8a878, 0x2a2015, 0.9);
   scene.add(hemi);
@@ -214,6 +381,100 @@
   sun.shadow.camera.top = 100; sun.shadow.camera.bottom = -100;
   sun.shadow.camera.far = 300;
   scene.add(sun);
+
+  // ---------- GÜNDÜZ/GECE DÖNGÜSÜ VE HAVA DURUMU ----------
+  const DAY_CYCLE_SECONDS = 260; // tam bir gündüz+gece turu
+  let dayClock = 40; // biraz gündüzden başla
+  const WEATHER = {
+    clear: { fogMul: 1.0,  tint: 0x8a7a5c, dust: 0.0,  label: 'AÇIK HAVA' },
+    hazy:  { fogMul: 2.0,  tint: 0x9a8a6a, dust: 0.4,  label: 'TOZLU HAVA' },
+    storm: { fogMul: 3.6,  tint: 0x776a52, dust: 0.85, label: 'KUM FIRTINASI' }
+  };
+  let weatherKey = 'clear';
+  let weatherTimer = 30;
+  let curFogMul = 1.0, curDust = 0.0;
+  const curTint = new THREE.Color(WEATHER.clear.tint);
+  const dayColor = new THREE.Color(0x8a7a5c);
+  const nightColor = new THREE.Color(0x0b1220);
+  const baseFogDensity = 0.016;
+
+  function pickWeather(){
+    const roll = Math.random();
+    const key = roll < 0.55 ? 'clear' : (roll < 0.85 ? 'hazy' : 'storm');
+    if (key !== weatherKey){
+      weatherKey = key;
+      const w = WEATHER[key];
+      showCenterMsg(key==='clear' ? '☀ HAVA AÇILIYOR' : key==='hazy' ? '🌫 TOZ BULUTU YAKLAŞIYOR' : '🌪 KUM FIRTINASI BAŞLIYOR — GÖRÜŞ AZALDI');
+    }
+    weatherTimer = 35 + Math.random()*35;
+  }
+
+  // sürüklenen toz/kum parçacıkları — hava durumuna göre yoğunlaşır
+  const DUST_COUNT = 360;
+  const dustGeo = new THREE.BufferGeometry();
+  const dustArr = new Float32Array(DUST_COUNT*3);
+  for(let i=0;i<DUST_COUNT;i++){
+    dustArr[i*3+0] = (Math.random()-0.5)*180;
+    dustArr[i*3+1] = Math.random()*24;
+    dustArr[i*3+2] = (Math.random()-0.5)*180;
+  }
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustArr,3));
+  const dustPtsMat = new THREE.PointsMaterial({color:0xcdbb90, size:0.4, transparent:true, opacity:0, depthWrite:false});
+  const dustPoints = new THREE.Points(dustGeo, dustPtsMat);
+  scene.add(dustPoints);
+
+  function updateEnvironment(dt){
+    // gündüz/gece ilerlemesi
+    dayClock = (dayClock + dt) % DAY_CYCLE_SECONDS;
+    const dayT = dayClock / DAY_CYCLE_SECONDS;
+    const sunAngle = dayT * Math.PI * 2;
+    const daylight = THREE.MathUtils.clamp(Math.sin(sunAngle)*1.15 + 0.15, 0.045, 1);
+    sun.position.set(Math.cos(sunAngle)*90, Math.max(10, Math.sin(sunAngle)*90), -40+Math.sin(sunAngle*0.7)*30);
+
+    // hava durumu geçişi (yumuşak enterpolasyon)
+    weatherTimer -= dt;
+    if (weatherTimer <= 0) pickWeather();
+    const w = WEATHER[weatherKey];
+    curFogMul += (w.fogMul - curFogMul) * Math.min(1, dt*0.25);
+    curDust += (w.dust - curDust) * Math.min(1, dt*0.25);
+    curTint.lerp(new THREE.Color(w.tint), Math.min(1, dt*0.25));
+
+    // gün ışığı + hava rengini birleştir
+    const skyColor = nightColor.clone().lerp(dayColor, daylight).lerp(curTint, 0.35);
+    scene.fog.color.copy(skyColor);
+    scene.background.copy(skyColor);
+    scene.fog.density = baseFogDensity * curFogMul * THREE.MathUtils.lerp(1.15, 0.9, daylight);
+
+    sun.intensity = THREE.MathUtils.lerp(0.12, 1.15, daylight) * THREE.MathUtils.lerp(1, 0.45, Math.min(1,(curFogMul-1)/2.6));
+    hemi.intensity = THREE.MathUtils.lerp(0.28, 0.9, daylight);
+
+    // toz/kum parçacıklarını rüzgarla sürükle, oyuncuya göre sarmalı döngü
+    dustPtsMat.opacity = curDust * 0.55;
+    if (curDust > 0.02){
+      const wind = 5.5 * curFogMul;
+      const posAttr = dustGeo.attributes.position;
+      const px = player.group.position.x, pz = player.group.position.z;
+      for(let i=0;i<DUST_COUNT;i++){
+        let x = posAttr.getX(i) + wind*dt;
+        let y = posAttr.getY(i) - dt*0.5;
+        let z = posAttr.getZ(i) + wind*0.35*dt;
+        let rx = x - px, rz = z - pz;
+        if (rx > 95) x -= 190; else if (rx < -95) x += 190;
+        if (rz > 95) z -= 190; else if (rz < -95) z += 190;
+        if (y < 0) y = 20 + Math.random()*4;
+        posAttr.setXYZ(i, x, y, z);
+      }
+      posAttr.needsUpdate = true;
+    }
+
+    // HUD göstergesi (saniyede birkaç kez güncelle, her karede değil)
+    envHudTimer = (envHudTimer||0) - dt;
+    if (envHudTimer <= 0){
+      envHudTimer = 1.0;
+      const envEl = document.getElementById('envTag');
+      if (envEl) envEl.textContent = (daylight > 0.45 ? '☀ GÜNDÜZ' : '🌙 GECE') + '  ·  ' + w.label;
+    }
+  }
 
   // ---------- GROUND ----------
   function makeGroundTexture(){
@@ -465,7 +726,57 @@
   // Player mech — rust/brown heavy-armor scheme (image 1 reference)
   const player = buildMech(1.0, 0x8a6a45, 0x2c2620, 0xe0b13a);
   player.group.position.set(0,0,0);
+  player.chassis = 'balanced';
   scene.add(player.group);
+
+  // ---------- ŞASİ TİPLERİ (Altın alınca robot değiştirme) ----------
+  const CHASSIS = {
+    light:    { key:'light',    label:'HAFİF',   desc:'Hızlı, çevik, ince zırh',
+                scale:0.85, bodyColor:0x4a6b46, darkColor:0x1e2a1e, accent:0x8fe06a, heavy:false,
+                hp:4, allySpeedMul:1.35, playerSpeedMul:1.3, playerFireMul:0.85, maxHp:120 },
+    balanced: { key:'balanced', label:'DENGELİ', desc:'Standart zırh ve hız',
+                scale:0.95, bodyColor:0x3a5f6e, darkColor:0x1c2a2e, accent:0x3ecfe0, heavy:false,
+                hp:5, allySpeedMul:1.0,  playerSpeedMul:1.0, playerFireMul:1.0,  maxHp:150 },
+    heavy:    { key:'heavy',    label:'AĞIR',    desc:'Yavaş ama çok dayanıklı',
+                scale:1.15, bodyColor:0x7a5a35, darkColor:0x2a2015, accent:0xff8a3a, heavy:true,
+                hp:9, allySpeedMul:0.8,  playerSpeedMul:0.78, playerFireMul:1.2,  maxHp:200 }
+  };
+
+  // bir mech'in 3D modelini ve istatistiklerini başka bir şasiyle değiştirir
+  // (mechDataRef nesnesinin kendisi korunur, sadece içindeki referanslar güncellenir —
+  //  böylece player/ally kaydını tutan diğer kodlar bozulmaz)
+  function swapMechChassis(mechDataRef, chassisKey, isPlayer){
+    const c = CHASSIS[chassisKey];
+    if (!c) return;
+    const oldGroup = mechDataRef.group;
+    const pos = oldGroup.position.clone();
+    const rotY = oldGroup.rotation.y;
+    scene.remove(oldGroup);
+    disposeMechGroup(oldGroup);
+    const built = buildMech(c.scale, c.bodyColor, c.darkColor, c.accent, c.heavy);
+    built.group.position.copy(pos);
+    built.group.rotation.y = rotY;
+    scene.add(built.group);
+    mechDataRef.group = built.group;
+    mechDataRef.shoulders = built.shoulders;
+    mechDataRef.arms = built.arms;
+    mechDataRef.legs = built.legs;
+    mechDataRef.exhausts = built.exhausts;
+    mechDataRef.bodyColor = built.bodyColor;
+    mechDataRef.heavy = built.heavy;
+    mechDataRef.height = built.height;
+    mechDataRef.chassis = chassisKey;
+    mechDataRef._bob = 0;
+    mechDataRef._legPhasePrev = undefined;
+    if (isPlayer){
+      playerSpeedMul = c.playerSpeedMul;
+      playerFireMul = c.playerFireMul;
+      maxHp = c.maxHp;
+      hp = maxHp;
+      updateHUD();
+    }
+    playGrowl(c.heavy);
+  }
 
   // ---------- ENEMY MECHS ----------
   const enemies = [];
@@ -485,7 +796,8 @@
   function killEnemy(e, explosionColor){
     if (!e.alive) return;
     e.alive = false;
-    spawnExplosion(e.mech.group.position.clone().add(new THREE.Vector3(0,3,0)), explosionColor||0xff8a3a);
+    playGrowl(e.heavy);
+    spawnExplosion(e.mech.group.position.clone().add(new THREE.Vector3(0,3,0)), explosionColor||0xff8a3a, true);
     scene.remove(e.mech.group);
     disposeMechGroup(e.mech.group);
     score += 100;
@@ -510,6 +822,7 @@
     const dist = aggressive ? 50+Math.random()*15 : 90+Math.random()*40;
     enemy.group.position.set(Math.cos(angle)*dist, 0, Math.sin(angle)*dist);
     scene.add(enemy.group);
+    playGrowl(isHeavy);
     if (isHeavy) showCenterMsg('⚠ AĞIR AVCI TESPİT EDİLDİ ⚠');
     enemies.push({
       mech: enemy, hp: isHeavy?9:3, alive:true, fireTimer: 1.5+Math.random()*2,
@@ -521,19 +834,34 @@
   // ---------- MÜTTEFİK ROBOTLAR ----------
   const allies = [];
   function spawnAlly(side){
+    spawnAllyAt(new THREE.Vector3(side*8, 0, 6), Math.PI, side);
+  }
+  function spawnAllyAt(pos, rotY, side){
     const ally = buildMech(0.95, 0x3a5f6e, 0x1c2a2e, 0x3ecfe0, false);
-    ally.group.position.set(side*8, 0, 6);
-    ally.group.rotation.y = Math.PI;
+    ally.group.position.copy(pos);
+    ally.group.rotation.y = rotY||0;
+    ally.group.scale.setScalar(0.01);
+    ally.chassis = 'balanced';
     scene.add(ally.group);
-    allies.push({
+    const rec = {
       mech: ally, hp:5, alive:true, fireTimer: 1+Math.random(),
       walkPhase: Math.random()*10, speed:6.4, stopDist:24,
-      guardOffset: {x: side*6, z:5}
-    });
+      guardOffset: {x: (side!==undefined?side:(Math.random()<0.5?-1:1))*6, z:5}
+    };
+    allies.push(rec);
+    // iniş büyüme animasyonu (havadan teslim edilen müttefikler için)
+    const startT = performance.now();
+    (function grow(){
+      const t = Math.min(1, (performance.now()-startT)/450);
+      ally.group.scale.setScalar(0.01+0.99*t);
+      if (t<1) requestAnimationFrame(grow);
+    })();
+    return rec;
   }
   function killAlly(a){
     if (!a.alive) return;
     a.alive = false;
+    playGrowl(true);
     spawnExplosion(a.mech.group.position.clone().add(new THREE.Vector3(0,3,0)), 0x3ecfe0);
     scene.remove(a.mech.group);
     disposeMechGroup(a.mech.group);
@@ -554,11 +882,12 @@
     mesh.quaternion.copy(quat);
     scene.add(mesh);
     projectiles.push({ mesh, dir: dir.clone().normalize(), speed: friendly?150:(missile?55:70), life: 3.4, friendly, damage: missile?13:6 });
+    playShot(friendly);
   }
 
   // ---------- EXPLOSIONS ----------
   const explosions = [];
-  function spawnExplosion(pos, color){
+  function spawnExplosion(pos, color, big){
     const group = new THREE.Group();
     for(let i=0;i<10;i++){
       const s = 0.15+Math.random()*0.35;
@@ -569,6 +898,7 @@
       explosions.push({mesh:m, vel:v, life:0.6+Math.random()*0.3, age:0});
     }
     scene.add(group);
+    playExplosion(!!big);
   }
 
   function spawnDust(pos){
@@ -636,6 +966,81 @@
       }, i*140);
     }
     setTimeout(()=>{ scene.remove(ring); }, 1200);
+  }
+
+  // ---------- HAVADAN DESTEK (savaş gemisiyle yeni müttefik teslimatı) ----------
+  function dropSupplyPod(landPos, onDrop){
+    const pod = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6,1.6,1.6),
+      new THREE.MeshStandardMaterial({color:0x2c2f33, metalness:0.6, roughness:0.5})
+    );
+    pod.position.set(landPos.x, 44, landPos.z);
+    pod.castShadow = true;
+    scene.add(pod);
+    const t0 = performance.now();
+    function fall(){
+      const t = (performance.now()-t0)/900;
+      if (t >= 1){
+        scene.remove(pod);
+        spawnDust(landPos);
+        spawnExplosion(landPos.clone().add(new THREE.Vector3(0,1,0)), 0x3ecfe0);
+        shakeCamera(0.15);
+        if (onDrop) onDrop();
+        return;
+      }
+      pod.position.y = 44*(1-t)*(1-t) + 0.3;
+      pod.rotation.x += 0.2; pod.rotation.z += 0.15;
+      requestAnimationFrame(fall);
+    }
+    fall();
+  }
+
+  function spawnAirSupportShip(landPos, onDrop){
+    const stopDrone = playShipDrone();
+    const ship = new THREE.Group();
+    const hullM = new THREE.MeshStandardMaterial({color:0x2e3238, roughness:0.45, metalness:0.65});
+    const hull = new THREE.Mesh(new THREE.ConeGeometry(2.4, 10, 4), hullM);
+    hull.rotation.z = Math.PI/2;
+    ship.add(hull);
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(2.2,0.3,9), hullM);
+    ship.add(wing);
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3,1.6,2.4), hullM);
+    fin.position.set(0,1,-4);
+    ship.add(fin);
+    const glowM = new THREE.MeshStandardMaterial({color:0x3ecfe0, emissive:0x3ecfe0, emissiveIntensity:1.5});
+    [-3.6,3.6].forEach(x=>{
+      const eng = new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.32,0.7,8), glowM);
+      eng.rotation.x = Math.PI/2;
+      eng.position.set(x,0,4.2);
+      ship.add(eng);
+    });
+    scene.add(ship);
+
+    const startPos = landPos.clone().add(new THREE.Vector3(-150, 46, -70));
+    const midPos = landPos.clone().add(new THREE.Vector3(0, 46, 0));
+    const endPos = landPos.clone().add(new THREE.Vector3(150, 46, 70));
+    ship.position.copy(startPos);
+    ship.lookAt(midPos);
+
+    let dropped = false;
+    const t0 = performance.now();
+    const totalDur = 3800;
+    function fly(){
+      const t = Math.min(1, (performance.now()-t0)/totalDur);
+      if (t < 0.5) ship.position.lerpVectors(startPos, midPos, t/0.5);
+      else ship.position.lerpVectors(midPos, endPos, (t-0.5)/0.5);
+      if (!dropped && t >= 0.48){
+        dropped = true;
+        dropSupplyPod(landPos, onDrop);
+      }
+      if (t < 1){
+        requestAnimationFrame(fly);
+      } else {
+        scene.remove(ship);
+        if (stopDrone) stopDrone();
+      }
+    }
+    fly();
   }
 
   // ---------- INPUT ----------
@@ -711,7 +1116,8 @@
 
   // ---------- GAME STATE ----------
   let gameRunning = false;
-  let hp = 100, heat = 0, score = 0, enemiesRemaining = 0;
+  let hp = 150, maxHp = 150, heat = 0, score = 0, enemiesRemaining = 0;
+  let playerSpeedMul = 1, playerFireMul = 1, paused = false;
   let fireTimer = 0, dustTimer = 0;
   // missionPhase: 1 = ilk 2 düşmanı yok et, 'goldWait' = altın bekleniyor, 2 = altını üsse taşı
   let missionPhase = 1;
@@ -721,7 +1127,7 @@
   const clock = new THREE.Clock();
 
   function updateHUD(){
-    document.getElementById('hpBar').style.width = Math.max(0,hp)+'%';
+    document.getElementById('hpBar').style.width = Math.max(0, hp/maxHp*100)+'%';
     document.getElementById('heatBar').style.width = Math.min(100,heat)+'%';
     document.getElementById('scoreVal').textContent = score;
     const airBtn = document.getElementById('airstrikeBtn');
@@ -739,7 +1145,7 @@
   function updateMissionText(){
     const el = document.getElementById('missionText');
     const allyEl = document.getElementById('allyVal');
-    if (allyEl) allyEl.textContent = 'EKİP: ' + allies.filter(a=>a.alive).length + '/2';
+    if (allyEl) allyEl.textContent = 'EKİP: ' + allies.filter(a=>a.alive).length + '/' + allies.length;
     if (!el) return;
     if (missionPhase === 1){
       el.textContent = 'Düşmanları yok et — kalan: ' + Math.max(0,enemiesRemaining);
@@ -820,12 +1226,88 @@
     missionPhase = 2;
     enemiesRemaining = 2;
     waveTransitioning = false;
-    showCenterMsg('ALTIN ELE GEÇİRİLDİ! ÜSSE DÖN VE SAVUN');
+    playChime();
+    showCenterMsg('ALTIN ELE GEÇİRİLDİ!');
     spawnExtractionBeacon();
+    updateMissionText();
+    openRefitOverlay();
+  }
+
+  // ---------- TAKIM DÜZENLEME EKRANI ----------
+  function buildChassisCards(container, currentKey, onPick){
+    container.innerHTML = '';
+    Object.keys(CHASSIS).forEach(key=>{
+      const c = CHASSIS[key];
+      const card = document.createElement('div');
+      card.className = 'refitCard' + (key===currentKey ? ' active' : '');
+      card.innerHTML = '<b>'+c.label+'</b>'+c.desc;
+      card.addEventListener('click', ()=>{ onPick(key); renderRefitUI(); });
+      container.appendChild(card);
+    });
+  }
+
+  function renderRefitUI(){
+    const playerRow = document.getElementById('refitPlayerRow');
+    playerRow.innerHTML = '<div class="refitRowLabel">KENDİ ROBOTUN</div>';
+    const playerCards = document.createElement('div');
+    playerCards.className = 'refitCards';
+    playerRow.appendChild(playerCards);
+    buildChassisCards(playerCards, player.chassis||'balanced', (key)=>{
+      swapMechChassis(player, key, true);
+    });
+
+    const alliesContainer = document.getElementById('refitAllyRows');
+    alliesContainer.innerHTML = '';
+    allies.filter(a=>a.alive).forEach((a, idx)=>{
+      const row = document.createElement('div');
+      row.className = 'refitRow';
+      row.innerHTML = '<div class="refitRowLabel">MÜTTEFİK '+(idx+1)+'</div>';
+      const cards = document.createElement('div');
+      cards.className = 'refitCards';
+      row.appendChild(cards);
+      alliesContainer.appendChild(row);
+      buildChassisCards(cards, a.mech.chassis||'balanced', (key)=>{
+        swapMechChassis(a.mech, key, false);
+        a.hp = CHASSIS[key].hp;
+        a.speed = 6.4 * CHASSIS[key].allySpeedMul;
+      });
+    });
+  }
+
+  function openRefitOverlay(){
+    paused = true;
+    hp = maxHp; // altın alınca tam onarım
+    updateHUD();
+    renderRefitUI();
+    document.getElementById('refitOverlay').style.display = 'flex';
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  function continueAfterGoldPickup(){
+    showCenterMsg('ÜSSE DÖN VE SAVUN');
     setTimeout(()=>{ if(gameRunning) spawnEnemy(false, true); }, 500);
     setTimeout(()=>{ if(gameRunning) spawnEnemy(false, true); }, 1300);
-    updateMissionText();
+    // her altın kazanıldığında havadan yeni bir müttefik robot geliyor
+    setTimeout(()=>{
+      if (!gameRunning) return;
+      showCenterMsg('✈ HAVADAN TAKVİYE GELİYOR');
+      const dropPos = player.group.position.clone().add(
+        new THREE.Vector3((Math.random()-0.5)*10, 0, -9-Math.random()*4)
+      );
+      spawnAirSupportShip(dropPos, ()=>{
+        if (!gameRunning) return;
+        spawnAllyAt(dropPos, Math.PI);
+        showCenterMsg('YENİ MÜTTEFİK SAHAYA İNDİ');
+        updateMissionText();
+      });
+    }, 500);
   }
+
+  document.getElementById('refitContinueBtn').addEventListener('click', ()=>{
+    document.getElementById('refitOverlay').style.display = 'none';
+    paused = false;
+    continueAfterGoldPickup();
+  });
 
   function stealGold(){
     goldCarried = false;
@@ -855,6 +1337,7 @@
 
   function winGame(){
     gameRunning = false;
+    playFanfare();
     document.getElementById('gameOver').classList.add('win');
     document.getElementById('gameOverTitle').textContent = 'GÖREV BAŞARILI';
     document.getElementById('finalScore').textContent = 'ALTIN GÜVENDE — SKOR: ' + score;
@@ -872,7 +1355,10 @@
   }
 
   document.getElementById('restartBtn').addEventListener('click', ()=>{
-    hp=100; heat=0; score=0; airstrikeCooldown=0; waveTransitioning=false;
+    maxHp=150; hp=150; heat=0; score=0; airstrikeCooldown=0; waveTransitioning=false;
+    playerSpeedMul=1; playerFireMul=1; paused=false;
+    document.getElementById('refitOverlay').style.display = 'none';
+    if (player.chassis && player.chassis !== 'balanced') swapMechChassis(player, 'balanced', true);
     enemies.forEach(e=>{ scene.remove(e.mech.group); disposeMechGroup(e.mech.group); });
     enemies.length = 0;
     allies.forEach(a=>{ scene.remove(a.mech.group); disposeMechGroup(a.mech.group); });
@@ -924,6 +1410,15 @@
         g.material.emissiveIntensity += (targetInt - g.material.emissiveIntensity)*0.2;
       });
     }
+    // ayak sesi — her yarım adım döngüsünde bir kez, mesafeye göre kısılarak
+    if (moving){
+      const legPhase0 = phase*8;
+      const prev = mechData._legPhasePrev===undefined ? legPhase0 : mechData._legPhasePrev;
+      if (Math.floor(legPhase0/Math.PI) !== Math.floor(prev/Math.PI)){
+        playStep(!!mechData.heavy, camera.position.distanceTo(mechData.group.position));
+      }
+      mechData._legPhasePrev = legPhase0;
+    }
   }
 
   // ---------- MAIN LOOP ----------
@@ -931,7 +1426,7 @@
     if (heat >= 100) return;
     fireTimer -= dt;
     if (fireTimer <= 0){
-      fireTimer = 0.14;
+      fireTimer = 0.14*playerFireMul;
       heat = Math.min(100, heat+7);
       const dir = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,yaw,0));
       dir.y += pitch*0.5;
@@ -944,7 +1439,7 @@
   }
 
   function update(dt){
-    if (!gameRunning) return;
+    if (!gameRunning || paused) return;
 
     // --- movement input ---
     let mx = moveX, mz = moveZ;
@@ -966,7 +1461,7 @@
       const move = new THREE.Vector3()
         .addScaledVector(forward, -mz)
         .addScaledVector(right, mx);
-      move.normalize().multiplyScalar(14*dt);
+      move.normalize().multiplyScalar(14*playerSpeedMul*dt);
       const newPos = player.group.position.clone().add(move);
       let blocked = false;
       for(const o of obstacles){
@@ -1185,6 +1680,7 @@
   function animate(){
     requestAnimationFrame(animate);
     const dt = Math.min(0.05, clock.getDelta());
+    updateEnvironment(dt);
     update(dt);
     renderer.render(scene, camera);
   }
