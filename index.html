@@ -66,8 +66,8 @@
   }
 
   #missionPanel {
-    position:absolute; top:14px; left:50%; transform:translateX(-50%);
-    text-align:center; min-width:220px;
+    position:absolute; top:96px; left:50%; transform:translateX(-50%);
+    text-align:center; max-width:min(72vw, 320px); z-index:5;
   }
   #missionText { color:#e0b13a; font-size:12px; letter-spacing:0.5px; }
 
@@ -383,6 +383,8 @@
   scene.add(sun);
 
   // ---------- GÜNDÜZ/GECE DÖNGÜSÜ VE HAVA DURUMU ----------
+  function clampNum(v,mn,mx){ return Math.max(mn, Math.min(mx, v)); }
+  function lerpNum(a,b,t){ return a + (b-a)*t; }
   const DAY_CYCLE_SECONDS = 260; // tam bir gündüz+gece turu
   let dayClock = 40; // biraz gündüzden başla
   const WEATHER = {
@@ -428,7 +430,7 @@
     dayClock = (dayClock + dt) % DAY_CYCLE_SECONDS;
     const dayT = dayClock / DAY_CYCLE_SECONDS;
     const sunAngle = dayT * Math.PI * 2;
-    const daylight = THREE.MathUtils.clamp(Math.sin(sunAngle)*1.15 + 0.15, 0.045, 1);
+    const daylight = clampNum(Math.sin(sunAngle)*1.15 + 0.15, 0.045, 1);
     sun.position.set(Math.cos(sunAngle)*90, Math.max(10, Math.sin(sunAngle)*90), -40+Math.sin(sunAngle*0.7)*30);
 
     // hava durumu geçişi (yumuşak enterpolasyon)
@@ -443,10 +445,10 @@
     const skyColor = nightColor.clone().lerp(dayColor, daylight).lerp(curTint, 0.35);
     scene.fog.color.copy(skyColor);
     scene.background.copy(skyColor);
-    scene.fog.density = baseFogDensity * curFogMul * THREE.MathUtils.lerp(1.15, 0.9, daylight);
+    scene.fog.density = baseFogDensity * curFogMul * lerpNum(1.15, 0.9, daylight);
 
-    sun.intensity = THREE.MathUtils.lerp(0.12, 1.15, daylight) * THREE.MathUtils.lerp(1, 0.45, Math.min(1,(curFogMul-1)/2.6));
-    hemi.intensity = THREE.MathUtils.lerp(0.28, 0.9, daylight);
+    sun.intensity = lerpNum(0.12, 1.15, daylight) * lerpNum(1, 0.45, Math.min(1,(curFogMul-1)/2.6));
+    hemi.intensity = lerpNum(0.28, 0.9, daylight);
 
     // toz/kum parçacıklarını rüzgarla sürükle, oyuncuya göre sarmalı döngü
     dustPtsMat.opacity = curDust * 0.55;
@@ -1680,8 +1682,8 @@
   function animate(){
     requestAnimationFrame(animate);
     const dt = Math.min(0.05, clock.getDelta());
-    updateEnvironment(dt);
-    update(dt);
+    try { updateEnvironment(dt); } catch(err){ console.error('updateEnvironment hata:', err); }
+    try { update(dt); } catch(err){ console.error('update hata:', err); }
     renderer.render(scene, camera);
   }
   updateHUD();
